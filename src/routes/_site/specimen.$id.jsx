@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { base44 } from "@/api/base44Client";
-import { regenerateOrganism } from "@/lib/server-fns";
+import { getUserPlanet, regenerateOrganism } from "@/lib/server-fns";
 import { normalizeSpecies } from "@/lib/normalize-species";
+import { friendlyError } from "@/lib/friendly-error";
 import { atmosphereLabel, waterLabel, surfaceLabel } from "@/lib/planet-options";
 import SpeciesCard from "@/components/planet/SpeciesCard";
 import FactGrid from "@/components/planet/FactGrid";
@@ -29,7 +29,7 @@ function SpecimenPage() {
 
   const { data: record, isLoading, isError } = useQuery({
     queryKey: ["specimen", id],
-    queryFn: () => base44.entities.UserPlanet.get(id),
+    queryFn: () => getUserPlanet({ data: { id } }),
     retry: false,
   });
 
@@ -131,7 +131,7 @@ function SpecimenPage() {
 
       {mutation.isError ? (
         <p className="mt-6 rounded-lg border border-[#FF3B3B]/30 bg-[#FF3B3B]/10 px-4 py-3 text-sm text-[#FF9C9C]">
-          The regeneration failed. Try again in a moment.
+          {friendlyError(mutation.error, "The regeneration failed. Try again in a moment.")}
         </p>
       ) : null}
 

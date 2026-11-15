@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { listUserPlanets } from "@/lib/server-fns";
 import SpecimenTile from "@/components/gallery/SpecimenTile";
 import { Sparkles } from "lucide-react";
 
@@ -23,12 +23,7 @@ const PAGE_SIZE = 12;
 function GalleryPage() {
   const query = useInfiniteQuery({
     queryKey: ["gallery"],
-    queryFn: ({ pageParam }) =>
-      base44.entities.UserPlanet.list({
-        sort: "-created_date",
-        limit: PAGE_SIZE,
-        ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+    queryFn: ({ pageParam }) => listUserPlanets({ data: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: null,
     getNextPageParam: (lastPage) => (lastPage?.has_more ? lastPage.next_cursor : undefined),
   });

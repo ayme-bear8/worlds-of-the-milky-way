@@ -1,6 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
 import { PLANETS, getPlanet } from "@/data/solar-system";
 import { SPECIES_IMAGES } from "@/data/species-images";
 import { normalizeSpecies } from "@/lib/normalize-species";
@@ -36,16 +34,6 @@ function PlanetDetailPage() {
   const { planetSlug } = Route.useParams();
   const local = getPlanet(planetSlug);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["planet", planetSlug],
-    queryFn: async () => {
-      const [planets, species] = await Promise.all([
-        base44.entities.Planet.filter({ slug: planetSlug }),
-        base44.entities.NativeSpecies.filter({ planet_slug: planetSlug }),
-      ]);
-      return { planet: planets[0] || null, species: species[0] || null };
-    },
-  });
 
   if (!local) {
     return (
@@ -65,7 +53,6 @@ function PlanetDetailPage() {
     );
   }
 
-  const record = data?.planet;
   const localFacts = {
     gravity: local.facts.gravity,
     temperature: local.facts.temperature,
@@ -78,10 +65,10 @@ function PlanetDetailPage() {
 
   const facts = FACT_LABELS.map(([key, label]) => ({
     label,
-    value: record?.[key] || localFacts[key] || "—",
+    value: localFacts[key] || "—",
   }));
 
-  const species = normalizeSpecies(data?.species || local.species);
+  const species = normalizeSpecies(local.species);
 
   const sphere = {
     color: local.color,
@@ -172,15 +159,11 @@ function PlanetDetailPage() {
         </div>
 
         <div className="mt-6">
-          {isLoading && !data ? (
-            <div className="glass h-[420px] animate-pulse rounded-3xl" />
-          ) : (
-            <SpeciesCard
-              species={species}
-              image={data?.species?.image_url || SPECIES_IMAGES[planetSlug]}
-              note="Invented organism · every trait follows from the measured conditions above."
-            />
-          )}
+          <SpeciesCard
+            species={species}
+            image={SPECIES_IMAGES[planetSlug]}
+            note="Invented organism · every trait follows from the measured conditions above."
+          />
         </div>
       </section>
 

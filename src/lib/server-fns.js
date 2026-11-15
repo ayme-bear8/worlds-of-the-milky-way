@@ -1,5 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
 import { z } from "zod";
+import { generateImage, generateJson } from "@/lib/ai.server";
+import { getPlanet, hit, insertPlanet, listPlanets, updatePlanet } from "@/lib/db.server";
 import { atmosphereLabel, waterLabel, surfaceLabel, radiationLabel } from "@/lib/planet-options";
 
 const planetInput = z.object({
@@ -88,7 +92,7 @@ Subject: ${organism.species_name}, a native organism of an invented planet with 
 
 Style: hyper-realistic cinematic 3D render, biologically plausible speculative evolution, rim lighting against a dark background, shallow depth of field, volumetric haze, museum-specimen realism. No text, no lettering, no humans, no spacecraft.`;
 
-const toRecord = (data, organism, imageUrl) => ({
+const toRecord = (data, organism) => ({
   ...data,
   creator_name: data.creator_name || "",
   radiation_label: radiationLabel(data.radiation),
@@ -102,44 +106,69 @@ const toRecord = (data, organism, imageUrl) => ({
   adaptations: Array.isArray(organism.adaptations) ? organism.adaptations.slice(0, 6) : [],
   threats: organism.threats,
   weakness: organism.weakness,
-  survival_score: Math.round(Number(organism.survival_score) || 60),
-  image_url: imageUrl || "",
+  survival_score: Math.min(95, Math.max(35, Math.round(Number(organism.survival_score) || 60))),
 });
+
+const SYSTEM_PROMPT =
+  "You are a careful astrobiologist. Reply with a single JSON object that matches the requested schema, and nothing else.";
+
+// Every generation spends AI budget and these endpoints are public, so each
+// visitor gets a small hourly allowance and the whole app a daily ceiling.
+// Both are set in wrangler.jsonc `vars`.
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+
+async function visitorKey() {
+  const ip = getRequest().headers.get("cf-connecting-ip") || "unknown";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`wotmw:${ip}`));
+  return Array.from(new Uint8Array(digest).slice(0, 12), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+class LimitError extends Error {}
+
+async function spendGeneration() {
+  const perVisitor = Number(env.HOURLY_LIMIT_PER_VISITOR) || 6;
+  const perDay = Number(env.DAILY_GENERATION_LIMIT) || 1500;
+  const visitorCount = await hit(`visitor:${await visitorKey()}`, HOUR);
+  if (visitorCount > perVisitor) {
+    throw new LimitError(
+      `RATE_LIMITED: You've surveyed ${perVisitor} worlds this hour. Take a look around the archive and try again soon.`,
+    );
+  }
+  const dayCount = await hit("global", DAY);
+  if (dayCount > perDay) {
+    throw new LimitError("RATE_LIMITED: The observatory has hit today's survey limit. Browse the archive for now.");
+  }
+}
+
+async function designOrganism(planet, extraInstruction = "") {
+  const organism = await generateJson({
+    system: SYSTEM_PROMPT,
+    prompt: `${buildPrompt(planet)}${extraInstruction}`,
+    schema: ORGANISM_SCHEMA,
+  });
+  if (!organism?.species_name) throw new Error("The model returned an incomplete organism.");
+  const image = await generateImage(buildImagePrompt(organism, planet));
+  return { record: toRecord(planet, organism), image };
+}
 
 export const generateOrganism = createServerFn({ method: "POST" })
   .validator(planetInput)
-  .handler(async ({ data, context }) => {
-    const base44 = context.getBase44();
-
-    const organism = await base44.asServiceRole.integrations.Core.InvokeLLM({
-      prompt: buildPrompt(data),
-      response_json_schema: ORGANISM_SCHEMA,
-    });
-
-    let imageUrl = "";
-    try {
-      const image = await base44.asServiceRole.integrations.Core.GenerateImage({
-        prompt: buildImagePrompt(organism, data),
-      });
-      imageUrl = image?.url || "";
-    } catch {
-      imageUrl = "";
-    }
-
-    const record = await base44.asServiceRole.entities.UserPlanet.create(
-      toRecord(data, organism, imageUrl)
-    );
-
-    return { id: record.id };
+  .handler(async ({ data }) => {
+    await spendGeneration();
+    const { record, image } = await designOrganism(data);
+    const id = await insertPlanet(record, image);
+    return { id };
   });
 
 export const regenerateOrganism = createServerFn({ method: "POST" })
-  .validator(z.object({ id: z.string().min(1).max(64) }))
-  .handler(async ({ data, context }) => {
-    const base44 = context.getBase44();
-    const existing = await base44.asServiceRole.entities.UserPlanet.get(data.id);
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const existing = await getPlanet(data.id);
+    if (!existing) throw new Error("That specimen does not exist.");
+    await spendGeneration();
 
-    const planet = {
+    const planet = planetInput.parse({
       planet_name: existing.planet_name,
       creator_name: existing.creator_name || "",
       gravity: existing.gravity,
@@ -149,27 +178,25 @@ export const regenerateOrganism = createServerFn({ method: "POST" })
       water: existing.water,
       day_length: existing.day_length,
       surface_type: existing.surface_type,
-    };
-
-    const organism = await base44.asServiceRole.integrations.Core.InvokeLLM({
-      prompt: `${buildPrompt(planet)}\n\nThis is a second survey of the same world: produce a clearly different organism from the obvious first answer.`,
-      response_json_schema: ORGANISM_SCHEMA,
     });
 
-    let imageUrl = "";
-    try {
-      const image = await base44.asServiceRole.integrations.Core.GenerateImage({
-        prompt: buildImagePrompt(organism, planet),
-      });
-      imageUrl = image?.url || "";
-    } catch {
-      imageUrl = "";
-    }
-
-    await base44.asServiceRole.entities.UserPlanet.update(
-      data.id,
-      toRecord(planet, organism, imageUrl)
+    const { record, image } = await designOrganism(
+      planet,
+      "\n\nThis is a second survey of the same world: produce a clearly different organism from the obvious first answer.",
     );
-
+    await updatePlanet(data.id, record, image);
     return { id: data.id };
   });
+
+export const getUserPlanet = createServerFn({ method: "GET" })
+  .validator(z.object({ id: z.string().min(1).max(64) }))
+  .handler(({ data }) => getPlanet(data.id));
+
+export const listUserPlanets = createServerFn({ method: "GET" })
+  .validator(
+    z.object({
+      cursor: z.number().int().positive().nullable().optional(),
+      limit: z.number().int().min(1).max(48).optional().default(12),
+    }),
+  )
+  .handler(({ data }) => listPlanets({ cursor: data.cursor || null, limit: data.limit }));

@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { generateOrganism } from "@/lib/server-fns";
+import { friendlyError } from "@/lib/friendly-error";
 import { ATMOSPHERES, WATERS, SURFACES, radiationLabel } from "@/lib/planet-options";
 import PlanetPreview from "@/components/design/PlanetPreview";
 import SliderField from "@/components/design/SliderField";
@@ -50,7 +51,7 @@ function DesignPage() {
         setError("The survey came back empty. Try generating again.");
       }
     },
-    onError: () => setError("The survey failed before it could finish. Try again in a moment."),
+    onError: (err) => setError(friendlyError(err, "The survey failed before it could finish. Try again in a moment.")),
   });
 
   const update = (patch) => setSettings((current) => ({ ...current, ...patch }));
