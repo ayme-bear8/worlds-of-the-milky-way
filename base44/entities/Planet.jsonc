@@ -1,0 +1,89 @@
+{
+  "name": "Planet",
+  "type": "object",
+  "properties": {
+    "slug": {
+      "type": "string",
+      "description": "URL slug, e.g. mercury"
+    },
+    "name": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "order": {
+      "type": "number"
+    },
+    "au": {
+      "type": "number"
+    },
+    "distance": {
+      "type": "string"
+    },
+    "size": {
+      "type": "number"
+    },
+    "color": {
+      "type": "string"
+    },
+    "light_color": {
+      "type": "string"
+    },
+    "dark_color": {
+      "type": "string"
+    },
+    "glow": {
+      "type": "string"
+    },
+    "ring": {
+      "type": "boolean"
+    },
+    "teaser": {
+      "type": "string"
+    },
+    "tagline": {
+      "type": "string"
+    },
+    "gravity": {
+      "type": "string"
+    },
+    "temperature": {
+      "type": "string"
+    },
+    "atmosphere": {
+      "type": "string"
+    },
+    "day_length": {
+      "type": "string"
+    },
+    "radiation": {
+      "type": "string"
+    },
+    "surface_type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "slug",
+    "name"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
